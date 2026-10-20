@@ -6,25 +6,24 @@ from functools import wraps
 import pdfplumber
 from flask import (Flask, request, jsonify, session, g, send_from_directory,
                    redirect, abort)
+from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.db")
 
 app = Flask(__name__, static_folder=None)
-#todo:secret_key setup
 app.secret_key = os.environ.get("SECRET_KEY", "dev-only-change-me")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB upload limit
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-# Files the server is allowed to hand out
 PUBLIC_PAGES = {"index.html", "login.html", "signup.html"}
 ASSETS = {"style.css", "login.css", "applicant.css",
           "script.js", "auth.js", "applicant.js"}
 ROLES = {"applicant", "recruiter"}
 
 
-# ================= DATABASE =================
+#DB
 def get_db():
     """One SQLite connection per request (a single global one is not thread-safe)."""
     if "db" not in g:
@@ -62,34 +61,63 @@ def init_db():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(data)")]
     if "user_id" not in cols:
         conn.execute("ALTER TABLE data ADD COLUMN user_id INTEGER")
-
     for name, col in (("idx_users_username", "username"), ("idx_users_email", "email")):
         try:
             conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {name} ON users({col})")
         except sqlite3.IntegrityError:
-            pass
+            pass  
     conn.commit()
     conn.close()
 
 
 init_db()
 
-
-# ================= RESUME PARSING =================
-SKILLSET = [
-    "python", "java", "javascript", "typescript", "c", "c++", "c#", "sql", "mysql",
-    "postgresql", "mongodb", "html", "css", "react", "angular", "node.js", "express.js",
-    "flask", "fastapi", "django", "git", "docker", "aws", "excel", "machine learning",
-    "deep learning", "operating systems", "data analysis", "pandas", "numpy", "tensorflow", "linux", "kafka", "docker",
-    "spring boot", "golang", "swift", "kubernetes","cloud computing", "redis", "jwt",
-    "jenkins", "prometheus", "postman", "devops", "asp.net core", "rabbitmq", 
-]
-
-# "java" must not match inside "javascript", so require a non-word boundary.
-SKILL_PATTERNS = {
-    s: re.compile(r"(?<![a-z0-9+#])" + re.escape(s) + r"(?![a-z0-9+#])")
-    for s in SKILLSET
+# skill -> (weight, [aliases that count as the same skill])
+# weight: 3 = core / in-demand, 2 = solid, 1 = nice to have
+SKILLS = {
+    "python":           (3, ["python"]),
+    "java":             (3, ["java"]),
+    "javascript":       (3, ["javascript", "ecmascript"]),
+    "typescript":       (2, ["typescript"]),
+    "c++":              (3, ["c++", "cpp"]),
+    "c#":               (3, ["c#", "csharp"]),
+    "sql":              (3, ["sql"]),
+    "mysql":            (2, ["mysql"]),
+    "postgresql":       (2, ["postgresql", "postgres"]),
+    "mongodb":          (2, ["mongodb", "mongo db"]),
+    "html":             (1, ["html", "html5"]),
+    "css":              (1, ["css", "css3"]),
+    "react":            (3, ["react", "reactjs", "react.js"]),
+    "angular":          (3, ["angular", "angularjs"]),
+    "node.js":          (3, ["node.js", "nodejs", "node js"]),
+    "flask":            (2, ["flask"]),
+    "django":           (2, ["django"]),
+    "git":              (1, ["git", "github", "gitlab"]),
+    "docker":           (2, ["docker"]),
+    "aws":              (3, ["aws", "amazon web services"]),
+    "excel":            (1, ["excel", "ms excel", "microsoft excel"]),
+    "machine learning": (3, ["machine learning", "ml"]),
+    "data analysis":    (2, ["data analysis", "data analytics"]),
+    "pandas":           (2, ["pandas"]),
+    "numpy":            (2, ["numpy"]),
+    "tensorflow":       (3, ["tensorflow"]),
+    "linux":            (2, ["linux", "ubuntu"]),
 }
+SKILLSET = list(SKILLS) 
+
+ALIAS_TO_SKILL = {alias: skill for skill, (_, aliases) in SKILLS.items() for alias in aliases}
+
+SKILL_PATTERNS = {
+    skill: re.compile(
+        r"(?<![a-z0-9+#])(?:" + "|".join(re.escape(a) for a in aliases) + r")(?![a-z0-9+#])")
+    for skill, (_, aliases) in SKILLS.items()
+}
+
+
+def normalize_skill(name):
+    """Turn what a recruiter types ('Postgres', 'JS') into the stored skill name."""
+    name = name.strip().lower()
+    return ALIAS_TO_SKILL.get(name, name)
 
 
 def read_pdf(file_storage):
@@ -124,11 +152,41 @@ def extract_experience(text):
     return max((int(x) for x in found), default=0)
 
 
-def compute_score(skills, experience):
-    return min(100, len(skills) * 10 + min(experience, 5) * 2)
+def score_breakdown(skills, experience, required=None, min_exp=0):
+    """
+    Score out of 100.
+      * Without a job:  80% skills (weighted, saturates at 30 weight points) + 20% experience
+      * With `required` skills (a job): 80% = weighted share of the required skills found
+    Experience uses diminishing returns: the first years count the most (full marks at 8 years,
+    or at `min_exp` years when the job asks for a minimum).
+    """
+    weight = lambda sk: SKILLS.get(sk, (2, []))[0]
+
+    if required:
+        total = sum(weight(s) for s in required)
+        got = sum(weight(s) for s in required if s in skills)
+        skill_pct = got / total if total else 0
+    else:
+        skill_pct = min(1.0, sum(weight(s) for s in skills) / 30)
+
+    target = min_exp if min_exp else 8
+    exp_pct = min(1.0, (experience / target) ** 0.7) if target else 1.0
+
+    skill_pts = round(80 * skill_pct)
+    exp_pts = round(20 * exp_pct)
+    return {
+        "score": min(100, skill_pts + exp_pts),
+        "skills_points": skill_pts,
+        "experience_points": exp_pts,
+        "missing": [s for s in (required or []) if s not in skills],
+    }
 
 
-#AUTH
+def compute_score(skills, experience, required=None, min_exp=0):
+    return score_breakdown(skills, experience, required, min_exp)["score"]
+
+
+#AUTH HELPERS
 def current_user():
     uid = session.get("uid")
     if not uid:
@@ -144,7 +202,7 @@ def api_login_required(role=None):
         def wrapper(*args, **kwargs):
             user = current_user()
             if not user:
-                return jsonify({"message": "You are logged out,Please log in first"}), 401
+                return jsonify({"message": "Please log in first"}), 401
             if role and user["role"] != role:
                 return jsonify({"message": f"This is only for {role}s"}), 403
             return fn(user, *args, **kwargs)
@@ -157,33 +215,70 @@ def home_for(role):
 
 
 #PAGES
+ALIASES = {
+    "index": "index.html", "login": "login.html", "signup": "signup.html",
+    "applicant_dashboard": "applicant_dashboard.html", "recruiter": "recruiter.html",
+}
+def find_dirs():
+    wanted = PUBLIC_PAGES | ASSETS | {"applicant_dashboard.html", "recruiter.html"}
+    skip = {".git", "node_modules", "venv", ".venv", "env", "__pycache__"}
+    dirs = [BASE_DIR]
+    root = os.path.dirname(BASE_DIR)
+    for cur, subdirs, files in os.walk(root):
+        subdirs[:] = [d for d in subdirs if d not in skip]
+        if cur[len(root):].count(os.sep) >= 3:
+            subdirs[:] = []
+        if os.path.normpath(cur) != os.path.normpath(BASE_DIR) and wanted & set(files):
+            dirs.append(cur)
+    return dirs
+
+
+SEARCH_DIRS = find_dirs()
+
+
+def serve(name):
+    for d in SEARCH_DIRS:
+        if os.path.isfile(os.path.join(d, name)):
+            return send_from_directory(d, name)
+    abort(404)
+
+
+def check_files():
+    """Print a warning at startup for any page/asset the server can't find."""
+    missing = [n for n in sorted(PUBLIC_PAGES | ASSETS | {"applicant_dashboard.html", "recruiter.html"})
+               if not any(os.path.isfile(os.path.join(d, n)) for d in SEARCH_DIRS)]
+    if missing:
+        print("WARNING: these files were not found next to app.py:", ", ".join(missing))
+
+
+check_files()
+
+
 @app.route("/")
 def home():
-    return send_from_directory(BASE_DIR, "index.html")
+    return serve("index.html")
 
 
 @app.route("/<name>")
 def pages(name):
-    if name in PUBLIC_PAGES or name in ASSETS:
-        return send_from_directory(BASE_DIR, name)
+    name = ALIASES.get(name, name)
 
-    protected = {
-        "applicant_dashboard.html": "applicant", "applicant_dashboard": "applicant",
-        "recruiter.html": "recruiter", "recruiter": "recruiter",
-    }
+    if name in PUBLIC_PAGES or name in ASSETS:
+        return serve(name)
+
+    protected = {"applicant_dashboard.html": "applicant", "recruiter.html": "recruiter"}
     if name in protected:
         user = current_user()
         if not user:
             return redirect("/login.html")
         if user["role"] != protected[name]:
             return redirect(home_for(user["role"]))
-        page = "applicant_dashboard.html" if protected[name] == "applicant" else "recruiter.html"
-        return send_from_directory(BASE_DIR, page)
+        return serve(name)
 
     abort(404)
 
 
-#AUTH API 
+#AUTH API
 @app.route("/signup", methods=["POST"])
 def signup():
     data = request.get_json(silent=True) or {}
@@ -254,7 +349,7 @@ def me(user):
     return jsonify({"username": user["username"], "role": user["role"]})
 
 
-#Resume API 
+# RESUME API
 def profile_json(row):
     skills = [s for s in (row["skills"] or "").split(",") if s]
     exp = row["exp_in_years"] or 0
@@ -275,12 +370,12 @@ def upload(user):
     if not file or not file.filename:
         return jsonify({"message": "Please choose a PDF file"}), 400
     if not file.filename.lower().endswith(".pdf"):
-        return jsonify({"message": "Only PDF resumes are supported!"}), 400
+        return jsonify({"message": "Only PDF resumes are supported"}), 400
 
     try:
         text = read_pdf(file)
     except Exception:
-        return jsonify({"message": "Could not read that file."}), 400
+        return jsonify({"message": "Could not read that file. Is it a valid PDF?"}), 400
     if not text.strip():
         return jsonify({"message": "No text found in the PDF (scanned images are not supported)"}), 400
 
@@ -318,7 +413,7 @@ def my_profile(user):
 @app.route("/api/candidates")
 @api_login_required("recruiter")
 def candidates(user):
-    wanted = [s.strip().lower() for s in request.args.get("skills", "").split(",") if s.strip()]
+    wanted = [normalize_skill(s) for s in request.args.get("skills", "").split(",") if s.strip()]
     min_exp = request.args.get("experience", default=0, type=int) or 0
 
     rows = get_db().execute(
@@ -333,10 +428,34 @@ def candidates(user):
         if wanted and not matched:
             continue
         p["matched"] = matched
+        if wanted:  # score the candidate against what the recruiter asked for
+            p["score"] = compute_score(p["skills"], p["experience"], wanted, min_exp)
         results.append(p)
 
     results.sort(key=lambda p: (-len(p["matched"]), -p["experience"], -p["score"]))
     return jsonify({"candidates": results})
+
+
+@app.errorhandler(404)
+def not_found(_e):
+    """Self-diagnosing 404: shows what the server is looking for and what it found."""
+    wanted = sorted(PUBLIC_PAGES | ASSETS | {"applicant_dashboard.html", "recruiter.html"})
+    found = [n for n in wanted if any(os.path.isfile(os.path.join(d, n)) for d in SEARCH_DIRS)]
+    missing = [n for n in wanted if n not in found]
+    if request.path.startswith(("/api/", "/upload")):
+        return jsonify({"message": "Not found"}), 404
+    html = (
+        "<h2>ResumeMatch server (app.py v3) is running, but this page was not found</h2>"
+        f"<p><b>You asked for:</b> {escape(request.path)}</p>"
+        f"<p><b>app.py is in:</b> {escape(BASE_DIR)}</p>"
+        f"<p><b>Folders searched:</b> {escape(' | '.join(SEARCH_DIRS))}</p>"
+        f"<p><b>Files found:</b> {escape(', '.join(found) or 'none')}</p>"
+        f"<p style='color:#b91c1c'><b>Files MISSING:</b> {escape(', '.join(missing) or 'none')}</p>"
+        "<p>Missing files must be put next to app.py with exactly these names "
+        "(no random prefixes). Valid addresses: <a href='/'>/</a>, "
+        "<a href='/login.html'>/login.html</a>, <a href='/signup.html'>/signup.html</a></p>"
+    )
+    return html, 404
 
 
 @app.errorhandler(413)
@@ -344,5 +463,6 @@ def too_large(_e):
     return jsonify({"message": "File is too large (max 5 MB)"}), 413
 
 
+#RUN 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True)
