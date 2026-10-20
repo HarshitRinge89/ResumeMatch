@@ -32,6 +32,7 @@ applicant.css              Applicant dashboard styles
 ## Run locally
 
 ```bash
+cd "Backend"
 python app.py
 ```
 
