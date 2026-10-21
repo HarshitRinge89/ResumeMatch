@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Dashboard | ResumeMatch</title>
+  <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1870/1870080.png">
   <link rel="stylesheet" href="applicant.css">
 </head>
 <body>
@@ -12,6 +13,7 @@
   <div class="logo">ResumeMatch</div>
   <div class="nav-buttons">
     <a href="index.html" class="btn-outline">Home</a>
+    <button type="button" class="btn-outline" onclick="logout()">Logout</button>
   </div>
 </nav>
 
@@ -21,19 +23,20 @@
   <!-- Upload Box -->
   <div class="upload-box">
     <h2>Upload Your Resume</h2>
-    <p>Get instant AI insights and job matching</p>
+    <p>Get instant insights from your PDF resume</p>
 
-    <!-- ✅ FIXED FORM (CONNECTED TO FLASK) -->
-    <form action="/applicant_dashboard" method="POST" enctype="multipart/form-data">
+    <!-- Submitted by applicant.js (fetch to /upload) -->
+    <form id="resumeForm">
 
-      <input type="file" name="file" id="resume" required>
+      <input type="file" name="file" id="resume" accept=".pdf,application/pdf" required>
 
-      <button type="submit" class="btn-primary">
+      <button type="submit" class="btn-primary" id="analyzeBtn">
         Analyze Resume
       </button>
 
     </form>
 
+    <p id="msg" class="msg"></p>
   </div>
 
   <!-- Result Section -->
@@ -74,5 +77,6 @@
 
 </section>
 
+<script src="applicant.js"></script>
 </body>
 </html>

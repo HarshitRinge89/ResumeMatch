@@ -1,31 +1,61 @@
-let isLogin = true;
+// Shared by login.html and signup.html (signup has a "confirm-password" field).
+const isSignup = !!document.getElementById("confirm-password");
 
+// The "Sign Up" / "Login" link at the bottom of the card
 function toggleForm() {
-  const title = document.getElementById("form-title");
-  const switchText = document.querySelector(".switch");
-
-  if (isLogin) {
-    title.innerText = "Sign Up";
-    switchText.innerHTML = `Already have an account? <span onclick="toggleForm()">Login</span>`;
-  } else {
-    title.innerText = "Login";
-    switchText.innerHTML = `Don’t have an account? <span onclick="toggleForm()">Sign Up</span>`;
-  }
-
-  isLogin = !isLogin;
+  window.location.href = isSignup ? "login.html" : "signup.html";
 }
 
-// Fake login (for now)
-document.getElementById("auth-form").addEventListener("submit", function(e) {
+const form = document.getElementById("auth-form");
+const submitBtn = form.querySelector("button[type=submit]");
+
+// Message line shown above the submit button
+const msg = document.createElement("p");
+msg.style.cssText = "font-size:14px;margin:8px 0;min-height:18px;color:#dc2626;";
+submitBtn.before(msg);
+
+function showMessage(text, ok) {
+  msg.style.color = ok ? "#16a34a" : "#dc2626";
+  msg.innerText = text;
+}
+
+form.addEventListener("submit", async function (e) {
   e.preventDefault();
+  showMessage("");
 
-  const username = document.getElementById("username").value;
+  const payload = {
+    username: document.getElementById("username").value.trim(),
+    password: document.getElementById("password").value,
+    role: document.getElementById("role").value
+  };
 
-  // store login locally
-  localStorage.setItem("user", username);
+  if (isSignup) {
+    payload.email = document.getElementById("email").value.trim();
+    if (payload.password !== document.getElementById("confirm-password").value) {
+      showMessage("Passwords do not match");
+      return;
+    }
+  }
 
-  alert("Login successful!");
+  submitBtn.disabled = true;
+  try {
+    const res = await fetch(isSignup ? "/signup" : "/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
 
-  // redirect
-  window.location.href = "index.html";
+    if (!res.ok) {
+      showMessage(data.message || "Something went wrong");
+      return;
+    }
+
+    window.location.href =
+      data.role === "recruiter" ? "recruiter.html" : "applicant_dashboard.html";
+  } catch (err) {
+    showMessage("Could not reach the server. Open http://127.0.0.1:5000");
+  } finally {
+    submitBtn.disabled = false;
+  }
 });

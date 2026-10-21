@@ -59,7 +59,7 @@ Passwords are hashed with Werkzeug. After login, Flask stores the user id in a s
 1. `pdfplumber` extracts the PDF text.
 2. Skills are matched against the `SKILLSET` list in `app.py` (whole-word match).
 3. Email, phone (Indian mobile format) and experience (largest "N years" in the text) are extracted with regular expressions.
-4. Score = `10 points per skill + 2 points per year of experience (max 5 years)`, capped at 100.
+4. Score = 60% × required skills matched + 15% × nice-to-have skills + 15% × experience vs. what the job asks + 10% × resume quality.
 5. The result is saved in the `data` table, replacing the applicant's previous resume.
 
 ### Database
@@ -95,5 +95,3 @@ Tables are created at startup. An older `database.db` is upgraded automatically 
 - Skill detection only knows the skills in `SKILLSET`.
 - No CSRF protection, email verification or password reset.
 - `debug=True` and the default `SECRET_KEY` are for local development only. For anything public, set a `SECRET_KEY` environment variable, turn debug off, and run behind a production server such as gunicorn.
-
----

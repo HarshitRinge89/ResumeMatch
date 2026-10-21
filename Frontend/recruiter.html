@@ -1,19 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Recruiter Dashboard</title>
+  <meta charset="UTF-8">
+  <title>Recruiter Dashboard | ResumeMatch</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1870/1870080.png">
 </head>
 <body>
 
-<h2>Find Candidates</h2>
+<nav class="navbar">
+  <div class="logo">ResumeMatch</div>
+  <div class="nav-buttons">
+    <a href="index.html" class="nav-button">Home</a>
+    <button type="button" class="nav-button" onclick="logout()">Logout</button>
+  </div>
+</nav>
 
-<input type="text" id="skills" placeholder="Enter skills (comma separated)">
-<input type="number" id="experience" placeholder="Experience">
+<section class="recruiter">
+  <h2>Find Candidates</h2>
 
-<button onclick="findCandidates()">Search</button>
+  <form class="search-row" onsubmit="findCandidates(event)">
+    <input type="text" id="skills" placeholder="Enter skills (comma separated), e.g. python, sql">
+    <input type="number" id="experience" min="0" placeholder="Min. experience (years)">
+    <button type="submit" class="btn-primary">Search</button>
+  </form>
 
-<div id="candidates"></div>
+  <p id="search-msg" class="msg"></p>
+  <div id="candidates" class="candidate-grid"></div>
+</section>
 
 <script src="script.js"></script>
 </body>
