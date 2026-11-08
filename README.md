@@ -27,7 +27,7 @@ applicant.css              Applicant dashboard styles
 ## Requirements
 
 - Python 3.9+
-- `pip install flask pdfplumber`
+- `pip install -r requirements.txt`
 
 ## Run locally
 
@@ -38,22 +38,22 @@ python app.py
 
 Then open **http://127.0.0.1:5000**.
 
-Do not open the `.html` files by double-clicking them. The pages talk to the Flask server, so they must be loaded through it.
-
 ## How to use it
-
-1. Go to `/signup.html` and create an **Applicant** account (min. 6-character password).
+For Applicants:-
+1. Tap on Sign up button and create an **Applicant** account (min. 6-character password).
 2. Upload a text-based PDF resume on the dashboard. You will see your score and details.
-3. Log out, then create a **Recruiter** account.
-4. Search for candidates, e.g. skills `python, sql` and experience `2`.
+
+For Recruiters:-
+1. Create a **Recruiter** account.
+2. Search for candidates, e.g. skills `python, sql` and experience `2`.
 
 ## How it works
 
 ### Pages and access control
-Flask serves only a fixed list of pages and assets, so `app.py` and `database.db` cannot be downloaded. `applicant_dashboard.html` and `recruiter.html` are protected: without a login you are redirected to the login page, and each role is sent to its own dashboard.
+Flask serves only a fixed list of pages and assets, so `app.py` and `database.db` cannot be downloaded. `applicant_dashboard` page and `recruiter` page are protected: without a login you are redirected to the login page, and each role is sent to its own dashboard.
 
 ### Authentication
-Passwords are hashed with Werkzeug. After login, Flask stores the user id in a signed session cookie. Every protected API route reads that cookie to know who is calling and what role they have.
+Passwords are hashed with Werkzeug. After login, Flask stores the user id in a signed session cookie.
 
 ### Resume analysis (`/upload`)
 1. `pdfplumber` extracts the PDF text.

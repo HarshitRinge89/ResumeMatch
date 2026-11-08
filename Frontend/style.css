@@ -81,7 +81,7 @@ body {
   align-items: center;
   padding: 100px 80px;
   gap: 40px;
-  background-color: hsl(221,60%,97%);
+  background: linear-gradient(180deg, #ffffff, #a3c3ff);
 }
 
 .hero-left {
@@ -142,7 +142,7 @@ body {
 
 /* Blue Cards */
 .feature-card.blue {
-  background: linear-gradient(135deg, #2563eb, #1e40af);
+  background: linear-gradient(135deg, #4e7ee7, #1e40af);
   color: white;
   padding: 30px;
   border-radius: 16px;
